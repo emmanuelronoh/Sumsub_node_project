@@ -1,0 +1,34 @@
+{
+  "name": "sumsub-api-client",
+  "version": "1.0.0",
+  "description": "A Node.js client for interacting with the Sumsub API.",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "axios": "^1.8.4",
+    "cors": "^2.8.5",
+    "crypto": "^1.0.1",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "form-data": "^4.0.2",
+    "node-fetch": "^3.3.2"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/emmanuelronoh/sumsub-api-nodejs.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/emmanuelronoh/sumsub-api-nodejs/issues"
+  },
+  "homepage": "https://github.com/emmanuelronoh/sumsub-api-nodejs#readme"
+}
