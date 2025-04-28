@@ -1,3 +1,4 @@
+// webhookhandler
 import { 
     generate, 
     reGenerate,
@@ -11,7 +12,7 @@ import {
   
   // Example usage with all available functions
   const userId = 'user-' + Math.random().toString(36).substring(2, 8);
-  const levelName = 'basic-kyc'; // Use your configured level name
+  const levelName = 'kyc_verification'; // Use your configured level name
   
   (async () => {
     try {
@@ -47,10 +48,6 @@ import {
       const history = await getVerificationHistory(userId);
       console.log("Verification History:", history);
       
-      // 7. Reset profile (admin function - use carefully)
-      // console.log('\n7. Resetting user profile...');
-      // await resetUserProfile(userId);
-      // console.log("Profile reset successfully");
       
       console.log('\n=== Demo Complete ===');
       console.log('Note: Webhook events will be processed separately');

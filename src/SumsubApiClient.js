@@ -7,7 +7,7 @@ dotenv.config();
 
 const SUMSUB_APP_TOKEN = process.env.SUMSUB_APP_TOKEN;
 const SUMSUB_SECRET_KEY = process.env.SUMSUB_SECRET_KEY;
-const SUMSUB_BASE_URL = process.env.SUMSUB_BASE_URL || 'https://api.sumsub.com';
+const SUMSUB_BASE_URL = process.env.SUMSUB_BASE_URL;
 const SUMSUB_WEBHOOK_SECRET = process.env.SUMSUB_WEBHOOK_SECRET;
 
 // Cache for storing verification statuses (replace with Redis in production)
@@ -53,9 +53,9 @@ async function sumsubRequest(url, method, body = null) {
     try {
         const fullUrl = SUMSUB_BASE_URL + url;
         console.log(`Making SumSub request to: ${method} ${fullUrl}`);
-        
+
         const response = await fetch(fullUrl, options);
-        
+
         if (!response.ok) {
             let errorData;
             try {
@@ -63,7 +63,7 @@ async function sumsubRequest(url, method, body = null) {
             } catch (e) {
                 errorData = { description: await response.text() };
             }
-            
+
             const error = new Error(`Sumsub API error: ${response.status} - ${errorData.description || 'Unknown error'}`);
             error.status = response.status;
             error.response = errorData;
@@ -89,7 +89,7 @@ async function getWebSDKLink(levelName, userId, options = {}) {
 
     console.log(`Creating WebSDK link for ${userId} with level ${levelName}`);
     const response = await sumsubRequest(url, 'POST', requestBody);
-    
+
     // Cache the verification URL
     verificationCache.set(userId, {
         url: response.url,
@@ -105,20 +105,20 @@ async function resetUserProfile(userId) {
     if (!userId) {
         throw new Error('User ID is required for profile reset');
     }
-    
+
     const url = `/resources/applicants/${encodeURIComponent(userId)}/reset`;
     const response = await sumsubRequest(url, 'POST');
-    
+
     // Clear cache for this user
     verificationCache.delete(userId);
-    
+
     return response;
 }
 
 async function checkUserStatus(userId) {
     const url = `/resources/applicants/-;externalUserId=${encodeURIComponent(userId)}/one`;
     const response = await sumsubRequest(url, 'GET');
-    
+
     // Update cache with latest status
     if (verificationCache.has(userId)) {
         verificationCache.set(userId, {
@@ -127,7 +127,7 @@ async function checkUserStatus(userId) {
             lastChecked: new Date()
         });
     }
-    
+
     return response;
 }
 
@@ -158,7 +158,7 @@ async function verifyWebhookSignature(rawBody, receivedSignature, webhookSecret 
         const receivedBuffer = Buffer.from(receivedSignature, 'utf8');
         const computedBuffer = Buffer.from(computedDigest, 'utf8');
 
-        if (receivedBuffer.length !== computedBuffer.length || 
+        if (receivedBuffer.length !== computedBuffer.length ||
             !crypto.timingSafeEqual(receivedBuffer, computedBuffer)) {
             console.error(`Signature verification failed:
                 Received: ${receivedSignature}
@@ -166,7 +166,7 @@ async function verifyWebhookSignature(rawBody, receivedSignature, webhookSecret 
             `);
             throw new Error('Invalid webhook signature');
         }
-        
+
         return true;
     } catch (error) {
         console.error('Error during signature verification:', error);
@@ -174,53 +174,96 @@ async function verifyWebhookSignature(rawBody, receivedSignature, webhookSecret 
     }
 }
 
+
 async function handleWebhookEvent(event) {
     console.log('Processing SumSub webhook event:', event.type);
     
     const { type, applicantId, reviewResult } = event;
     const externalUserId = applicantId.split(';externalUserId=')[1] || applicantId;
     
-    // Update verification cache with webhook data
-    const verificationData = {
-        applicantId,
-        externalUserId,
-        eventType: type,
-        status: reviewResult?.reviewStatus || 'unknown',
-        receivedAt: new Date(),
-        details: event
-    };
+    // Forward the webhook event to Django API
+    try {
+        const response = await axios.post(`${DJANGO_API_BASE_URL}/kyc/webhook/`, {
+            type,
+            applicantId,
+            externalUserId,
+            reviewStatus: reviewResult?.reviewStatus,
+            reviewResult
+        });
 
-    verificationCache.set(externalUserId, verificationData);
+        console.log('Webhook forwarded successfully:', response.status);
 
-    switch (type) {
-        case 'applicantReviewed':
-            console.log(`Applicant ${externalUserId} reviewed with status: ${reviewResult?.reviewStatus}`);
-            // Add your business logic here for approved/rejected cases
-            if (reviewResult?.reviewStatus === 'completed') {
-                // Handle successful verification
-            } else if (reviewResult?.reviewStatus === 'rejected') {
-                // Handle rejected verification
+        // Process the response and handle your business logic
+        if (response.status === 200) {
+            console.log('Event processed successfully by Django');
+
+            // Cache the verification data for local processing or quick lookup
+            const verificationData = {
+                applicantId,
+                externalUserId,
+                eventType: type,
+                status: reviewResult?.reviewStatus || 'unknown',
+                receivedAt: new Date(),
+                details: event
+            };
+
+            verificationCache.set(externalUserId, verificationData);
+
+            // Process the event based on the type
+            switch (type) {
+                case 'applicantReviewed':
+                    console.log(`Applicant ${externalUserId} reviewed with status: ${reviewResult?.reviewStatus}`);
+                    // Add your business logic here for approved/rejected cases
+                    if (reviewResult?.reviewStatus === 'completed') {
+                        // Handle successful verification
+                        console.log(`Verification completed for ${externalUserId}`);
+                        // Additional logic for completed status (e.g., notify, update system, etc.)
+                    } else if (reviewResult?.reviewStatus === 'rejected') {
+                        // Handle rejected verification
+                        console.log(`Verification rejected for ${externalUserId}`);
+                        // Additional logic for rejected status (e.g., notify, log, etc.)
+                    }
+                    break;
+                
+                case 'applicantPending':
+                    console.log(`Applicant ${externalUserId} is pending review`);
+                    break;
+                
+                case 'applicantCreated':
+                    console.log(`New applicant created: ${externalUserId}`);
+                    break;
+                
+                case 'applicantOnHold':
+                    console.log(`Applicant ${externalUserId} verification on hold`);
+                    break;
+                
+                default:
+                    console.log(`Unhandled event type: ${type}`);
             }
-            break;
-            
-        case 'applicantPending':
-            console.log(`Applicant ${externalUserId} is pending review`);
-            break;
-            
-        case 'applicantCreated':
-            console.log(`New applicant created: ${externalUserId}`);
-            break;
-            
-        case 'applicantOnHold':
-            console.log(`Applicant ${externalUserId} verification on hold`);
-            break;
-            
-        default:
-            console.log(`Unhandled event type: ${type}`);
+
+            return {
+                status: 'processed',
+                djangoResponse: response.data
+            };
+        }
+
+    } catch (error) {
+        console.error('Error forwarding webhook:', error.message);
+
+        // Store the failed webhook event for retry
+        await storeFailedWebhook({
+            type,
+            applicantId,
+            externalUserId,
+            reviewResult,
+            timestamp: new Date().toISOString()
+        });
+        
+        throw error; // rethrow the error so it can be handled upstream
     }
-    
-    return verificationData;
 }
+
+
 
 async function generate(userId, levelName = 'basic-kyc') {
     try {
@@ -243,10 +286,10 @@ async function reGenerate(userId, levelName = 'basic-kyc') {
         }
 
         console.log(`Attempting to regenerate verification for user: ${userId}`);
-        
+
         // Reset existing verification first
         await resetUserProfile(userId);
-        
+
         // Generate new link
         const response = await getWebSDKLink(levelName, userId);
         return response.url;
@@ -269,10 +312,10 @@ async function getVerificationHistory(userId) {
     return await sumsubRequest(url, 'GET');
 }
 
-export { 
-    generate, 
-    reGenerate, 
-    verifyWebhookSignature, 
+export {
+    generate,
+    reGenerate,
+    verifyWebhookSignature,
     handleWebhookEvent,
     checkUserStatus,
     resetUserProfile,
