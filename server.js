@@ -6,7 +6,7 @@ import { generate, reGenerate, handleWebhookEvent, verifyWebhookSignature, check
 import getRawBody from 'raw-body';
 
 const app = express();
-const port = process.env.PORT || 3001;
+const port = process.env.PORT;
 const DJANGO_API_BASE_URL = process.env.DJANGO_API_BASE_URL;
 
 // ========================
