@@ -7,7 +7,7 @@ import getRawBody from 'raw-body';
 
 const app = express();
 const port = process.env.PORT;
-const DJANGO_API_BASE_URL = process.env.DJANGO_API_BASE_URL;
+const DJANGO_API_BASE_URL = process.env.DJANGO_API_BASE_URL.replace(/\/$/, '');
 
 // ========================
 // Authentication Middleware
