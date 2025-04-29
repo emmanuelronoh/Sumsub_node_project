@@ -220,7 +220,7 @@ app.get('/api/verification-status/:verificationId', authenticateUser, async (req
     
     // Forward request to Django API
     const djangoResponse = await axios.get(
-      `${DJANGO_API_BASE_URL}verifications/user/${encodedForDjango}/`,
+      `${DJANGO_API_BASE_URL}/verifications/user/${encodedForDjango}/`,
       {
         headers: {
           'Authorization': `Bearer ${req.accessToken}`
