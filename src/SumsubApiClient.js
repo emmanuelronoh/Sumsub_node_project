@@ -2,6 +2,10 @@ import crypto from 'crypto';
 import fetch from 'node-fetch';
 import FormData from 'form-data';
 import dotenv from 'dotenv';
+import axios from 'axios';
+
+dotenv.config();
+const DJANGO_API_BASE_URL = process.env.DJANGO_API_BASE_URL;
 
 dotenv.config();
 
@@ -101,6 +105,16 @@ async function getWebSDKLink(levelName, userId, options = {}) {
     return response;
 }
 
+async function storeFailedWebhook(payload) {
+    console.warn('Storing failed webhook for retry:', {
+      type: payload.type,
+      applicantId: payload.applicantId,
+      timestamp: new Date().toISOString()
+    });
+    // TODO: Implement actual storage (e.g., save to database or queue)
+    return Promise.resolve(); // Temporary fix
+  }
+
 async function resetUserProfile(userId) {
     if (!userId) {
         throw new Error('User ID is required for profile reset');
@@ -183,7 +197,7 @@ async function handleWebhookEvent(event) {
     
     // Forward the webhook event to Django API
     try {
-        const response = await axios.post(`${DJANGO_API_BASE_URL}/kyc/webhook/`, {
+        const response = await axios.post(`${DJANGO_API_BASE_URL}webhook/`, {
             type,
             applicantId,
             externalUserId,
@@ -265,13 +279,32 @@ async function handleWebhookEvent(event) {
 
 
 
+// SumsubApiClient.js
 async function generate(userId, levelName = 'basic-kyc') {
     try {
+        // First create verification record in Django
+        const djangoResponse = await axios.post(
+            `${DJANGO_API_BASE_URL}verifications/`,
+            {
+                user_id: userId,
+                level_name: levelName
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${process.env.DJANGO_SERVICE_TOKEN}`
+                }
+            }
+        );
+
+        const applicantId = djangoResponse.data.applicant_id;
+        
+        // Now get SumSub link with this applicantId
         const response = await getWebSDKLink(levelName, userId, {
-            // Default options
+            externalUserId: applicantId,  // Pass our internal ID to SumSub
             lang: 'en',
             fixedFlow: true
         });
+        
         return response.url;
     } catch (error) {
         console.error("Error generating verification link:", error);
