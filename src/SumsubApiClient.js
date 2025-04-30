@@ -5,16 +5,13 @@ import dotenv from 'dotenv';
 import axios from 'axios';
 
 dotenv.config();
-const DJANGO_API_BASE_URL = process.env.DJANGO_API_BASE_URL;
-
-dotenv.config();
 
 const SUMSUB_APP_TOKEN = process.env.SUMSUB_APP_TOKEN;
 const SUMSUB_SECRET_KEY = process.env.SUMSUB_SECRET_KEY;
 const SUMSUB_BASE_URL = process.env.SUMSUB_BASE_URL;
 const SUMSUB_WEBHOOK_SECRET = process.env.SUMSUB_WEBHOOK_SECRET;
+const DJANGO_API_BASE_URL = process.env.DJANGO_API_BASE_URL;
 
-// Cache for storing verification statuses (replace with Redis in production)
 const verificationCache = new Map();
 
 function createSignature(url, method, data = null) {
@@ -105,16 +102,6 @@ async function getWebSDKLink(levelName, userId, options = {}) {
     return response;
 }
 
-async function storeFailedWebhook(payload) {
-    console.warn('Storing failed webhook for retry:', {
-      type: payload.type,
-      applicantId: payload.applicantId,
-      timestamp: new Date().toISOString()
-    });
-    // TODO: Implement actual storage (e.g., save to database or queue)
-    return Promise.resolve(); // Temporary fix
-  }
-
 async function resetUserProfile(userId) {
     if (!userId) {
         throw new Error('User ID is required for profile reset');
@@ -190,121 +177,228 @@ async function verifyWebhookSignature(rawBody, receivedSignature, webhookSecret 
 
 
 async function handleWebhookEvent(event) {
-    console.log('Processing SumSub webhook event:', event.type);
-    
-    const { type, applicantId, reviewResult } = event;
-    const externalUserId = applicantId.split(';externalUserId=')[1] || applicantId;
-    
-    // Forward the webhook event to Django API
+    console.log('Processing SumSub webhook event:', {
+        type: event.type,
+        applicantId: event.applicantId,
+        timestamp: new Date().toISOString()
+    });
+
+    const { type, applicantId, reviewResult = {}, inspectionId } = event;
+    const externalUserId = applicantId.includes(';externalUserId=')
+        ? applicantId.split(';externalUserId=')[1]
+        : applicantId;
+
+    // Enhanced payload construction
+    const webhookPayload = {
+        // Core identification fields
+        type,
+        applicantId,
+        externalUserId,
+        inspectionId,
+
+        // Status information
+        reviewStatus: reviewResult?.reviewStatus || 'pending',
+        reviewResult,
+
+        // Additional metadata
+        levelName: reviewResult?.levelName || 'kyc_verification',
+        createdAt: new Date().toISOString(),
+
+        // Original event for debugging
+        originalEvent: event
+    };
+
     try {
-        const response = await axios.post(`${DJANGO_API_BASE_URL}webhook/`, {
-            type,
-            applicantId,
-            externalUserId,
-            reviewStatus: reviewResult?.reviewStatus,
-            reviewResult
+        console.log('Forwarding webhook to Django with payload:', {
+            type: webhookPayload.type,
+            applicantId: webhookPayload.applicantId,
+            reviewStatus: webhookPayload.reviewStatus
         });
 
-        console.log('Webhook forwarded successfully:', response.status);
+        const response = await axios.post(
+            `${DJANGO_API_BASE_URL}/webhook/sumsub/`, // Uses the env variable
+            webhookPayload,
 
-        // Process the response and handle your business logic
-        if (response.status === 200) {
-            console.log('Event processed successfully by Django');
-
-            // Cache the verification data for local processing or quick lookup
-            const verificationData = {
-                applicantId,
-                externalUserId,
-                eventType: type,
-                status: reviewResult?.reviewStatus || 'unknown',
-                receivedAt: new Date(),
-                details: event
-            };
-
-            verificationCache.set(externalUserId, verificationData);
-
-            // Process the event based on the type
-            switch (type) {
-                case 'applicantReviewed':
-                    console.log(`Applicant ${externalUserId} reviewed with status: ${reviewResult?.reviewStatus}`);
-                    // Add your business logic here for approved/rejected cases
-                    if (reviewResult?.reviewStatus === 'completed') {
-                        // Handle successful verification
-                        console.log(`Verification completed for ${externalUserId}`);
-                        // Additional logic for completed status (e.g., notify, update system, etc.)
-                    } else if (reviewResult?.reviewStatus === 'rejected') {
-                        // Handle rejected verification
-                        console.log(`Verification rejected for ${externalUserId}`);
-                        // Additional logic for rejected status (e.g., notify, log, etc.)
-                    }
-                    break;
-                
-                case 'applicantPending':
-                    console.log(`Applicant ${externalUserId} is pending review`);
-                    break;
-                
-                case 'applicantCreated':
-                    console.log(`New applicant created: ${externalUserId}`);
-                    break;
-                
-                case 'applicantOnHold':
-                    console.log(`Applicant ${externalUserId} verification on hold`);
-                    break;
-                
-                default:
-                    console.log(`Unhandled event type: ${type}`);
-            }
-
-            return {
-                status: 'processed',
-                djangoResponse: response.data
-            };
-        }
-
-    } catch (error) {
-        console.error('Error forwarding webhook:', error.message);
-
-        // Store the failed webhook event for retry
-        await storeFailedWebhook({
-            type,
-            applicantId,
-            externalUserId,
-            reviewResult,
-            timestamp: new Date().toISOString()
-        });
-        
-        throw error; // rethrow the error so it can be handled upstream
-    }
-}
-
-
-
-// SumsubApiClient.js
-async function generate(userId, levelName = 'basic-kyc') {
-    try {
-        // First create verification record in Django
-        const djangoResponse = await axios.post(
-            `${DJANGO_API_BASE_URL}verifications/`,
-            {
-                user_id: userId,
-                level_name: levelName
-            },
             {
                 headers: {
-                    'Authorization': `Bearer ${process.env.DJANGO_SERVICE_TOKEN}`
-                }
+                    'Authorization': `Bearer ${process.env.DJANGO_SERVICE_TOKEN}`,
+                    'Content-Type': 'application/json',
+                    'X-Webhook-Source': 'sumsub-node-proxy'
+                },
+                timeout: 10000 // 10 seconds timeout
             }
         );
 
-        const applicantId = djangoResponse.data.applicant_id;
+        console.log('Webhook forwarded successfully. Django response:', {
+            status: response.status,
+            data: response.data
+        });
+
+        // Cache verification data with enhanced structure
+        const verificationData = {
+            ...webhookPayload,
+            djangoResponse: response.data,
+            processedAt: new Date().toISOString()
+        };
+
+        verificationCache.set(externalUserId, verificationData);
+        console.log(`Cached verification data for ${externalUserId}`);
+
+        // Enhanced event processing with better logging
+        await processWebhookEvent(type, externalUserId, reviewResult?.reviewStatus, event);
+
+        return {
+            status: 'processed',
+            djangoResponse: response.data,
+            verificationData
+        };
+
+    } catch (error) {
+        const errorDetails = {
+            message: error.message,
+            stack: error.stack,
+            response: error.response?.data,
+            payload: webhookPayload,
+            timestamp: new Date().toISOString()
+        };
+
+        console.error('Webhook processing failed:', errorDetails);
+
+        // Enhanced failed webhook storage
+        await storeFailedWebhook({
+            ...webhookPayload,
+            error: errorDetails,
+            retryCount: 0
+        });
+
+        // Throw enriched error
+        const processingError = new Error(`Webhook processing failed: ${error.message}`);
+        processingError.details = errorDetails;
+        throw processingError;
+    }
+}
+
+// Extracted event processor for better organization
+async function processWebhookEvent(type, externalUserId, reviewStatus, originalEvent) {
+    const logPrefix = `[${type.toUpperCase()}] ${externalUserId}`;
+
+    try {
+        console.log(`${logPrefix} - Processing event`);
+
+        switch (type) {
+            case 'applicantReviewed':
+                console.log(`${logPrefix} - Review status: ${reviewStatus}`);
+
+                if (reviewStatus === 'completed') {
+                    await handleCompletedVerification(externalUserId, originalEvent);
+                } else if (reviewStatus === 'rejected') {
+                    await handleRejectedVerification(externalUserId, originalEvent);
+                }
+                break;
+
+            case 'applicantPending':
+                console.log(`${logPrefix} - Verification pending`);
+                await handlePendingVerification(externalUserId, originalEvent);
+                break;
+
+            case 'applicantCreated':
+                console.log(`${logPrefix} - New applicant created`);
+                await handleNewApplicant(externalUserId, originalEvent);
+                break;
+
+            case 'applicantOnHold':
+                console.log(`${logPrefix} - Verification on hold`);
+                await handleOnHoldVerification(externalUserId, originalEvent);
+                break;
+
+            default:
+                console.warn(`${logPrefix} - Unhandled event type`);
+                await handleUnknownEvent(type, externalUserId, originalEvent);
+        }
+
+        console.log(`${logPrefix} - Event processed successfully`);
+    } catch (error) {
+        console.error(`${logPrefix} - Event processing failed:`, error);
+        throw error;
+    }
+}
+
+// Example handler functions (implement according to your needs)
+async function handleCompletedVerification(userId, event) {
+    // Add your business logic for completed verifications
+    console.log(`Handling completed verification for ${userId}`);
+    // Example: Notify user, update systems, etc.
+}
+
+async function handleRejectedVerification(userId, event) {
+    // Add your business logic for rejected verifications
+    console.log(`Handling rejected verification for ${userId}`);
+    const reasons = event.reviewResult?.rejectLabels?.join(', ') || 'unknown';
+    console.log(`Rejection reasons: ${reasons}`);
+    // Example: Notify user, log rejection reasons, etc.
+}
+
+// Add this handler function to SumsubApiClient.js
+async function handleNewApplicant(userId, event) {
+    try {
+        const response = await axios.post(
+            `${DJANGO_API_BASE_URL}/verifications/initiate/`,
+            { /* payload */ },
+            {
+                headers: {
+                    'Authorization': `Bearer ${process.env.DJANGO_SERVICE_TOKEN}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
         
-        // Now get SumSub link with this applicantId
-        const response = await getWebSDKLink(levelName, userId, {
-            externalUserId: applicantId,  // Pass our internal ID to SumSub
+        if (response.status === 401) {
+            throw new Error('Invalid Django service token - check .env configuration');
+        }
+        
+        return response.data;
+    } catch (error) {
+        console.error(`Auth failed for ${userId}:`, {
+            error: error.message,
+            status: error.response?.status,
+            data: error.response?.data
+        });
+        throw error;
+    }
+}
+// Enhanced failed webhook storage
+async function storeFailedWebhook(failedWebhook) {
+    console.warn('Storing failed webhook for retry:', {
+        type: failedWebhook.type,
+        applicantId: failedWebhook.applicantId,
+        timestamp: failedWebhook.timestamp
+    });
+
+    // Implement your storage logic here (database, queue, etc.)
+    // Example pseudo-code:
+    /*
+    const storageResult = await failedWebhookQueue.add({
+        ...failedWebhook,
+        lastAttempt: new Date(),
+        retryCount: (failedWebhook.retryCount || 0) + 1
+    });
+    */
+
+    // For now, we'll just log it
+    return { status: 'logged', webhook: failedWebhook };
+}
+
+
+// In your generate function
+async function generate(userId, levelName = 'kyc_verification') {
+    try {
+        // Use format "user_123" as externalUserId
+        const externalUserId = `user_${userId}`;
+        
+        const response = await getWebSDKLink(levelName, externalUserId, {
             lang: 'en',
             fixedFlow: true
         });
-        
         return response.url;
     } catch (error) {
         console.error("Error generating verification link:", error);
@@ -312,7 +406,7 @@ async function generate(userId, levelName = 'basic-kyc') {
     }
 }
 
-async function reGenerate(userId, levelName = 'basic-kyc') {
+async function reGenerate(userId, levelName = 'kyc_verification') {
     try {
         if (!userId) {
             throw new Error('User ID is required for regeneration');

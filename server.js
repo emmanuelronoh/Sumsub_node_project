@@ -7,30 +7,44 @@ import getRawBody from 'raw-body';
 
 const app = express();
 const port = process.env.PORT;
-const DJANGO_API_BASE_URL = process.env.DJANGO_API_BASE_URL.replace(/\/$/, '');
+const DJANGO_API_BASE_URL = process.env.DJANGO_API_BASE_URL;
 
 // ========================
 // Authentication Middleware
 // ========================
-const authenticateUser = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
+// Update the authenticateUser middleware to properly validate tokens
+const authenticateUser = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ 
+        error: 'Unauthorized',
+        details: 'Missing or invalid Authorization header' 
+      });
+    }
+
+    const token = authHeader.split(' ')[1];
+    
+    // Verify the token with Django
+    const response = await axios.get(`http://localhost:8000/api/auth/validate-token`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (response.status !== 200) {
+      throw new Error('Invalid token');
+    }
+
+    req.user = response.data.user;
+    next();
+  } catch (error) {
+    console.error('Authentication error:', error);
     return res.status(401).json({ 
       error: 'Unauthorized',
-      details: 'Missing or invalid Authorization header' 
+      details: 'Invalid or expired token' 
     });
   }
-
-  const token = authHeader.split(' ')[1];
-  if (!token) {
-    return res.status(401).json({ 
-      error: 'Unauthorized',
-      details: 'No access token provided' 
-    });
-  }
-
-  req.accessToken = token;
-  next();
 };
 
 // ========================
@@ -265,7 +279,7 @@ app.get('/admin/verifications', async (req, res) => {
       }
     }
 
-    const response = await axios.get(`${DJANGO_API_BASE_URL}verifications/`, {
+    const response = await axios.get(`${DJANGO_API_BASE_URL}/verifications/`, {
       headers: {
         'Authorization': `Bearer ${process.env.DJANGO_ADMIN_TOKEN}`
       }
@@ -294,7 +308,7 @@ app.get('/admin/verifications/:userId', async (req, res) => {
       }
     }
 
-    const response = await axios.get(`${DJANGO_API_BASE_URL}verifications/${userId}/`, {
+    const response = await axios.get(`${DJANGO_API_BASE_URL}/verifications/${userId}/`, {
       headers: {
         'Authorization': `Bearer ${process.env.DJANGO_ADMIN_TOKEN}`
       }
@@ -317,7 +331,7 @@ app.get('/admin/verifications/:userId', async (req, res) => {
 async function forwardToDjango(data) {
   try {
     const response = await axios.post(
-      `${DJANGO_API_BASE_URL}webhook/`,
+      `${DJANGO_API_BASE_URL}/webhook/sumsub/`,
       data,
       {
         headers: {
@@ -379,7 +393,7 @@ function handleDjangoError(res, error, context) {
 // ========================
 app.get('/health', async (req, res) => {
   try {
-    const djangoHealth = await axios.get(`${DJANGO_API_BASE_URL}health/`, {
+    const djangoHealth = await axios.get(`${DJANGO_API_BASE_URL}/health/`, {
       timeout: 3000
     }).catch(() => ({ status: 503 }));
 
