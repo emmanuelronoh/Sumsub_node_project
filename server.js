@@ -26,7 +26,7 @@ const authenticateUser = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
     
     // Verify the token with Django
-    const response = await axios.get(`"https://cheetahx.onrender.com/api/auth/validate-token`, {
+    const response = await axios.get("https://cheetahx.onrender.com/api/auth/validate-token", {
       headers: {
         'Authorization': `Bearer ${token}`
       }
