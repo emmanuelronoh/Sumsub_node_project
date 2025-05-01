@@ -234,7 +234,7 @@ app.get('/api/verification-status/:verificationId', authenticateUser, async (req
     
     // Forward request to Django API
     const djangoResponse = await axios.get(
-      `${DJANGO_API_BASE_URL}/verifications/user/${encodedForDjango}/`,
+      `${DJANGO_API_BASE_URL}/kyc/verifications/user/${encodedForDjango}/`,
       {
         headers: {
           'Authorization': `Bearer ${req.accessToken}`
@@ -279,7 +279,7 @@ app.get('/admin/verifications', async (req, res) => {
       }
     }
 
-    const response = await axios.get(`${DJANGO_API_BASE_URL}/verifications/`, {
+    const response = await axios.get(`${DJANGO_API_BASE_URL}/kyc/verifications/`, {
       headers: {
         'Authorization': `Bearer ${process.env.DJANGO_ADMIN_TOKEN}`
       }
@@ -308,7 +308,7 @@ app.get('/admin/verifications/:userId', async (req, res) => {
       }
     }
 
-    const response = await axios.get(`${DJANGO_API_BASE_URL}/verifications/${userId}/`, {
+    const response = await axios.get(`${DJANGO_API_BASE_URL}/kyc/verifications/${userId}/`, {
       headers: {
         'Authorization': `Bearer ${process.env.DJANGO_ADMIN_TOKEN}`
       }
@@ -331,7 +331,7 @@ app.get('/admin/verifications/:userId', async (req, res) => {
 async function forwardToDjango(data) {
   try {
     const response = await axios.post(
-      `${DJANGO_API_BASE_URL}/webhook/sumsub/`,
+      `${DJANGO_API_BASE_URL}/kyc/webhook/sumsub/`,
       data,
       {
         headers: {
@@ -393,7 +393,7 @@ function handleDjangoError(res, error, context) {
 // ========================
 app.get('/health', async (req, res) => {
   try {
-    const djangoHealth = await axios.get(`${DJANGO_API_BASE_URL}/health/`, {
+    const djangoHealth = await axios.get(`${DJANGO_API_BASE_URL}/kyc/health/`, {
       timeout: 3000
     }).catch(() => ({ status: 503 }));
 

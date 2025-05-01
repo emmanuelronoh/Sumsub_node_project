@@ -216,7 +216,7 @@ async function handleWebhookEvent(event) {
         });
 
         const response = await axios.post(
-            `${DJANGO_API_BASE_URL}/webhook/sumsub/`, // Uses the env variable
+            `${DJANGO_API_BASE_URL}/kyc/webhook/sumsub/`, // Uses the env variable
             webhookPayload,
 
             {
@@ -342,7 +342,7 @@ async function handleRejectedVerification(userId, event) {
 async function handleNewApplicant(userId, event) {
     try {
         const response = await axios.post(
-            `${DJANGO_API_BASE_URL}/verifications/initiate/`,
+            `${DJANGO_API_BASE_URL}/kyc/verifications/initiate/`,
             { /* payload */ },
             {
                 headers: {
