@@ -225,7 +225,7 @@ async function handleWebhookEvent(event) {
                     'Content-Type': 'application/json',
                     'X-Webhook-Source': 'sumsub-node-proxy'
                 },
-                timeout: 10000 // 10 seconds timeout
+                timeout: 40000 // 40 seconds timeout
             }
         );
 
