@@ -323,22 +323,16 @@ async function processWebhookEvent(type, externalUserId, reviewStatus, originalE
     }
 }
 
-// Example handler functions (implement according to your needs)
 async function handleCompletedVerification(userId, event) {
-    // Add your business logic for completed verifications
     console.log(`Handling completed verification for ${userId}`);
-    // Example: Notify user, update systems, etc.
 }
 
 async function handleRejectedVerification(userId, event) {
-    // Add your business logic for rejected verifications
     console.log(`Handling rejected verification for ${userId}`);
     const reasons = event.reviewResult?.rejectLabels?.join(', ') || 'unknown';
     console.log(`Rejection reasons: ${reasons}`);
-    // Example: Notify user, log rejection reasons, etc.
 }
 
-// Add this handler function to SumsubApiClient.js
 async function handleNewApplicant(userId, event) {
     try {
         const response = await axios.post(
@@ -366,7 +360,6 @@ async function handleNewApplicant(userId, event) {
         throw error;
     }
 }
-// Enhanced failed webhook storage
 async function storeFailedWebhook(failedWebhook) {
     console.warn('Storing failed webhook for retry:', {
         type: failedWebhook.type,
@@ -374,25 +367,12 @@ async function storeFailedWebhook(failedWebhook) {
         timestamp: failedWebhook.timestamp
     });
 
-    // Implement your storage logic here (database, queue, etc.)
-    // Example pseudo-code:
-    /*
-    const storageResult = await failedWebhookQueue.add({
-        ...failedWebhook,
-        lastAttempt: new Date(),
-        retryCount: (failedWebhook.retryCount || 0) + 1
-    });
-    */
-
-    // For now, we'll just log it
     return { status: 'logged', webhook: failedWebhook };
 }
 
 
-// In your generate function
 async function generate(userId, levelName = 'kyc_verification') {
     try {
-        // Use format "user_123" as externalUserId
         const externalUserId = `user_${userId}`;
         
         const response = await getWebSDKLink(levelName, externalUserId, {
@@ -414,10 +394,8 @@ async function reGenerate(userId, levelName = 'kyc_verification') {
 
         console.log(`Attempting to regenerate verification for user: ${userId}`);
 
-        // Reset existing verification first
         await resetUserProfile(userId);
 
-        // Generate new link
         const response = await getWebSDKLink(levelName, userId);
         return response.url;
     } catch (error) {
@@ -426,7 +404,6 @@ async function reGenerate(userId, levelName = 'kyc_verification') {
     }
 }
 
-// Additional utility functions
 async function getVerificationStatus(userId) {
     if (verificationCache.has(userId)) {
         return verificationCache.get(userId);

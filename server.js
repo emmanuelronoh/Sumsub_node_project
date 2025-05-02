@@ -12,7 +12,6 @@ const DJANGO_API_BASE_URL = process.env.DJANGO_API_BASE_URL;
 // ========================
 // Authentication Middleware
 // ========================
-// Update the authenticateUser middleware to properly validate tokens
 const authenticateUser = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -86,7 +85,6 @@ app.post('/sumsub-webhook',
         throw new Error('SUMSUB_WEBHOOK_SECRET is not configured');
       }
 
-      // Debug mode bypass - use only in development
       if (process.env.DEBUG_WEBHOOK === 'true') {
         console.warn('⚠️ Webhook verification bypassed for debugging');
         const parsed = JSON.parse(rawBody);
@@ -101,7 +99,6 @@ app.post('/sumsub-webhook',
         return res.status(200).send('Webhook received (debug mode)');
       }
 
-      // Verify signature
       const isValid = verifyWebhookSignature(rawBody, receivedSignature, webhookSecret);
       if (!isValid) {
         const computedSignature = createHmac('sha256', webhookSecret)
@@ -115,7 +112,6 @@ app.post('/sumsub-webhook',
         return res.status(403).json({ error: 'Invalid webhook signature' });
       }
 
-      // Parse and process the webhook
       const payload = JSON.parse(rawBody);
       console.log('Received webhook:', {
         type: payload.type,
@@ -221,51 +217,6 @@ app.post('/api/regenerate-sumsub-link', authenticateUser, async (req, res) => {
   }
 });
 
-// Check verification status
-app.get('/api/verification-status/:verificationId', authenticateUser, async (req, res) => {
-  try {
-    let { verificationId } = req.params;
-    
-    // First decode in case it's double-encoded
-    verificationId = decodeURIComponent(verificationId);
-    
-    // Then encode @ symbol only (Django expects %40 for @)
-    const encodedForDjango = verificationId.replace(/@/g, '%40');
-    
-    // Forward request to Django API
-    const djangoResponse = await axios.get(
-      `${DJANGO_API_BASE_URL}/kyc/verifications/user/${encodedForDjango}/`,
-      {
-        headers: {
-          'Authorization': `Bearer ${req.accessToken}`
-        },
-        timeout: 3000
-      }
-    );
-
-    if (djangoResponse?.data) {
-      return res.json({
-        status: djangoResponse.data.review_status,
-        result: djangoResponse.data.verification_result || djangoResponse.data
-      });
-    }
-
-    // If not found in Django, fallback to SumSub
-    const sumsubStatus = await checkUserStatus(verificationId);
-    return res.json({
-      status: sumsubStatus.reviewStatus || 'unknown',
-      result: sumsubStatus
-    });
-
-  } catch (error) {
-    console.error('Verification status check failed:', error.message);
-    res.status(500).json({
-      error: 'Failed to check verification status',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
 const verificationCache = new Map();
 
 app.get('/admin/verifications', async (req, res) => {
@@ -361,7 +312,6 @@ async function storeFailedWebhook(payload) {
     applicantId: payload.applicantId,
     timestamp: new Date().toISOString()
   });
-  // TODO: Implement actual storage and retry mechanism
 }
 
 function handleDjangoError(res, error, context) {
