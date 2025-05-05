@@ -30,7 +30,7 @@ const authenticateUser = async (req, res, next) => {
         'Authorization': `Bearer ${token}`
       }
     });
-
+    
     if (response.status !== 200) {
       throw new Error('Invalid token');
     }
