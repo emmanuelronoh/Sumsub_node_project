@@ -6,9 +6,11 @@ import { generate, reGenerate, handleWebhookEvent, verifyWebhookSignature, check
 import getRawBody from 'raw-body';
 
 const app = express();
-const port = process.env.PORT;
-const DJANGO_API_BASE_URL = process.env.DJANGO_API_BASE_URL;
-
+const port = process.env.PORT || 3000; 
+app.listen(port, () => {
+  console.log(` Server running on port ${port}`);
+});
+const DJANGO_API_BASE_URL = "https://cheetahx.onrender.com";
 // ========================
 // Authentication Middleware
 // ========================
