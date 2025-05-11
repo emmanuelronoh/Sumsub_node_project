@@ -7,9 +7,7 @@ import getRawBody from 'raw-body';
 
 const app = express();
 const port = process.env.PORT || 3000; 
-app.listen(port, () => {
-  console.log(` Server running on port ${port}`);
-});
+
 const DJANGO_API_BASE_URL = "https://cheetahx.onrender.com";
 // ========================
 // Authentication Middleware
@@ -27,7 +25,7 @@ const authenticateUser = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
     
     // Verify the token with Django
-    const response = await axios.get("https://cheetahx.onrender.com/api/auth/validate-token", {
+    const response = await axios.get("https://cheetahx.onrender.com/api/auth/validate-token/", {
       headers: {
         'Authorization': `Bearer ${token}`
       }
@@ -166,27 +164,83 @@ app.use((req, res, next) => {
 // Generate SumSub link
 app.post('/api/generate-sumsub-link', authenticateUser, async (req, res) => {
   try {
-    const { userId, levelName } = req.body;
+    const { userId, levelName, email, phone } = req.body;
     
-    if (!userId || !levelName) {
+    // Validate required fields
+    if (!userId || !levelName || !email) {
       return res.status(400).json({ 
         error: 'Validation failed',
-        details: 'userId and levelName are required'
+        details: 'userId, levelName, and email are required'
       });
     }
 
-    const url = await generate(userId, levelName);
+    // First create verification record in Django
+    const djangoResponse = await axios.post(
+      `${DJANGO_API_BASE_URL}/kyc/verifications/`,
+      {
+        email: email,
+        level_name: levelName,
+        phone: phone  // Optional, depending on your Django model
+      },
+      {
+        headers: {
+          'Authorization': req.headers.authorization,
+          'Content-Type': 'application/json'
+        },
+        timeout: 5000
+      }
+    );
+
+    console.log('Django verification record created:', {
+      status: djangoResponse.status,
+      data: djangoResponse.data
+    });
+
+    // Then generate SumSub link
+    const sumsubPayload = {
+      userId: userId,
+      levelName: levelName,
+      email: email,
+      phone: phone
+    };
+
+    const url = await generate(sumsubPayload);
+    
     res.json({ 
       url,
-      verificationId: userId
+      verificationId: userId,
+      djangoRecord: djangoResponse.data  // Optional: include Django response for debugging
     });
     
   } catch (error) {
-    console.error('Error generating SumSub link:', error.message);
-    const statusCode = error.response?.status || 500;
-    res.status(statusCode).json({ 
-      error: error.message,
-      details: error.response?.data || 'Check server logs'
+    console.error('Error in generate-sumsub-link:', {
+      message: error.message,
+      stack: error.stack,
+      response: error.response?.data
+    });
+
+    // Handle different error scenarios
+    if (error.response) {
+      // Forward Django validation errors
+      if (error.response.config?.url.includes(DJANGO_API_BASE_URL)) {
+        return res.status(error.response.status).json({
+          error: 'Django validation failed',
+          details: error.response.data,
+          djangoError: true
+        });
+      }
+      
+      // SumSub API errors
+      return res.status(error.response.status).json({ 
+        error: error.message,
+        details: error.response.data
+      });
+    }
+
+    // Other errors (network, etc.)
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
